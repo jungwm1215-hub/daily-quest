@@ -3326,6 +3326,53 @@ export default function App() {
   const sorted=[...st.quests].sort((a,b)=>{const o={high:0,mid:1,low:2};if(a.done!==b.done)return a.done?1:-1;return o[a.priority]-o[b.priority];});
   const completedCount=st.quests.filter(q=>q.done).length, totalCount=st.quests.length;
   const pomoDurSec=pomoDur.h*3600+pomoDur.m*60+pomoDur.s||25*60;
+
+  // 화면 꺼짐/켜짐 감지 → 타이머 보정
+  const hiddenAtRef = useRef(null);
+  useEffect(()=>{
+    function onVisibilityChange(){
+      if(document.hidden){
+        hiddenAtRef.current = Date.now();
+      } else {
+        if(hiddenAtRef.current){
+          const elapsed = Math.floor((Date.now() - hiddenAtRef.current) / 1000);
+          hiddenAtRef.current = null;
+          if(elapsed <= 0) return;
+          if(timerRunning){
+            setTimerSec(s => {
+              const next = s - elapsed;
+              if(next <= 0){
+                setTimerRunning(false);
+                setSt(p=>({...p, timersDone:p.timersDone+1}));
+                if(timerMode==="work"){setTimerMode("break"); return 5*60;}
+                else{setTimerMode("work"); return pomoDurSec;}
+              }
+              return next;
+            });
+          }
+          if(swRunning) setSwSec(s => s + elapsed);
+          if(timerRunning || swRunning){
+            setSt(p=>{
+              const next = {...p};
+              const today = new Date().toISOString().split('T')[0];
+              const cal = {...p.calendarData};
+              const dayData = cal[today] || {done:0, total:0, focusSecs:0};
+              cal[today] = {...dayData, focusSecs:(dayData.focusSecs||0)+elapsed};
+              next.calendarData = cal;
+              if(p.shinjeon){
+                next.sungryeok = (p.sungryeok||0) + Math.floor(elapsed/60);
+                next.weeklySungryeok = (p.weeklySungryeok||0) + Math.floor(elapsed/60);
+              }
+              if(p.forgottenActive) next.forgottenFocusSecs = (p.forgottenFocusSecs||0) + elapsed;
+              return next;
+            });
+          }
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return()=>document.removeEventListener('visibilitychange', onVisibilityChange);
+  },[timerRunning, swRunning, timerMode, pomoDurSec]);
   const timerPct=timerMode==="work"?(1-timerSec/pomoDurSec)*100:(1-timerSec/(5*60))*100;
   const fmt=s=>{const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=s%60;return`${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(sc).padStart(2,"0")}`;};
   const tmr=tomorrowStr(), tomorrowScheduled=st.scheduledQuests.filter(q=>q.scheduledFor===tmr);
